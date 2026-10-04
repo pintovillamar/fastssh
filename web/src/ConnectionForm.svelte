@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Select from './Select.svelte'
   import {
     createConnection,
     deleteConnection,
@@ -27,6 +28,7 @@
   let error = $state('')
   let notice = $state('')
   let busy = $state(false)
+  let confirmingDelete = $state(false)
 
   async function attempt(action: () => Promise<unknown>, after: () => void) {
     busy = true
@@ -58,7 +60,7 @@
   }
 
   function remove() {
-    if (!initial || !confirm(`Delete "${initial.name}"?`)) return
+    if (!initial) return
     attempt(() => deleteConnection(initial.id), ondone)
   }
 
@@ -96,13 +98,17 @@
     <input bind:value={name} placeholder="Optional — defaults to user@host" />
   </label>
 
-  <label>
-    Sign in with
-    <select bind:value={authKind}>
-      <option value="key_file">Key file</option>
-      <option value="password">Password</option>
-    </select>
-  </label>
+  <div class="field">
+    <span id="auth-kind-label">Sign in with</span>
+    <Select
+      bind:value={authKind}
+      labelledby="auth-kind-label"
+      options={[
+        { value: 'key_file', label: 'Key file' },
+        { value: 'password', label: 'Password' },
+      ]}
+    />
+  </div>
 
   {#if authKind === 'key_file'}
     <label>
@@ -122,8 +128,13 @@
     <button type="button" onclick={oncancel} disabled={busy}>Cancel</button>
     {#if initial}
       <span class="spacer"></span>
-      <button type="button" onclick={forget} disabled={busy}>Forget host key</button>
-      <button type="button" class="danger" onclick={remove} disabled={busy}>Delete</button>
+      {#if confirmingDelete}
+        <button type="button" class="danger" onclick={remove} disabled={busy}>Delete permanently</button>
+        <button type="button" onclick={() => (confirmingDelete = false)} disabled={busy}>Keep</button>
+      {:else}
+        <button type="button" onclick={forget} disabled={busy}>Forget host key</button>
+        <button type="button" class="danger" onclick={() => (confirmingDelete = true)} disabled={busy}>Delete</button>
+      {/if}
     {/if}
   </div>
 </form>

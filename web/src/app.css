@@ -33,7 +33,7 @@ body {
 
 button,
 input,
-select {
+textarea {
   font: inherit;
   color: inherit;
 }
@@ -75,7 +75,7 @@ button.plain:hover {
 }
 
 input,
-select {
+textarea {
   width: 100%;
   box-sizing: border-box;
   background: var(--surface);
@@ -91,7 +91,19 @@ select {
   outline-offset: 1px;
 }
 
-label {
+/* The browser's own number arrows don't match anything else here. */
+input[type='number'] {
+  appearance: textfield;
+}
+
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button {
+  appearance: none;
+  margin: 0;
+}
+
+label,
+.field {
   display: grid;
   gap: 6px;
   color: var(--secondary);
