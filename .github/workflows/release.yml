@@ -1,0 +1,159 @@
+name: Release
+
+# Pushing a tag like v0.2.0 builds the binaries, publishes a GitHub release
+# and pushes the container image.
+#
+# Running it by hand, or pushing to the `release-dry-run` branch, does the
+# same builds but publishes nothing. Use that to rehearse.
+on:
+  push:
+    tags: ['v*']
+    branches: [release-dry-run]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PUBLISH: ${{ startsWith(github.ref, 'refs/tags/v') }}
+  # Used in file names: the tag for a real release, otherwise "dry-run".
+  VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'dry-run' }}
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Built on the oldest available Ubuntu so the binaries also run on
+          # older systems (they need glibc 2.35 or newer).
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-22.04
+            arch: amd64
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-22.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check that the tag matches the version in Cargo.toml
+        if: env.PUBLISH == 'true'
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "fastssh") | .version')
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match Cargo.toml version $version"
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Build the interface
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+      - name: Build
+        run: cargo build --release --locked
+
+      - name: Package
+        run: |
+          ./target/release/fastssh --version
+          name="fastssh-$VERSION-${{ matrix.target }}"
+          mkdir "$name"
+          cp target/release/fastssh README.md LICENSE packaging/fastssh.service "$name/"
+          tar -czf "$name.tar.gz" "$name"
+          sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: archive-${{ matrix.arch }}
+          path: |
+            *.tar.gz
+            *.tar.gz.sha256
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.arch }}
+          path: target/release/fastssh
+          if-no-files-found: error
+
+  image:
+    name: Container image
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+      # The Dockerfile's "prebuilt" mode picks dist/<arch>/fastssh, so the
+      # image reuses the binaries built above instead of compiling again.
+      - uses: actions/download-artifact@v4
+        with:
+          name: binary-amd64
+          path: dist/amd64
+      - uses: actions/download-artifact@v4
+        with:
+          name: binary-arm64
+          path: dist/arm64
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        if: env.PUBLISH == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=dry-run,enable=${{ env.PUBLISH != 'true' }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          build-args: BINARY=prebuilt
+          platforms: linux/amd64,linux/arm64
+          push: ${{ env.PUBLISH == 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  release:
+    name: GitHub release
+    needs: [build, image]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: archive-*
+          merge-multiple: true
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # A tag with a hyphen (v0.2.0-rc.1) is published as a pre-release.
+          case "$GITHUB_REF_NAME" in *-*) prerelease=--prerelease ;; *) prerelease= ;; esac
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "FastSSH $GITHUB_REF_NAME" \
+            --generate-notes \
+            --verify-tag \
+            $prerelease \
+            *.tar.gz *.tar.gz.sha256

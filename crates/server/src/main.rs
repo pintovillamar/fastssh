@@ -137,6 +137,7 @@ async fn main() -> Result<()> {
     std::fs::create_dir_all(&data_dir)
         .with_context(|| format!("creating {}", data_dir.display()))?;
     let db_path = data_dir.join("fastssh.db");
+    restrict_to_owner(&db_path).with_context(|| format!("preparing {}", db_path.display()))?;
     let store = Store::open(&db_path).with_context(|| format!("opening {}", db_path.display()))?;
 
     let policy = guard::Policy {
@@ -182,10 +183,49 @@ async fn main() -> Result<()> {
         .with_context(|| format!("binding {}", args.listen))?;
     tracing::info!("FastSSH ready at http://{}", args.listen);
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(async {
-            let _ = tokio::signal::ctrl_c().await;
-        })
-        .await?;
+    // Open terminals would keep a "graceful" shutdown waiting forever, so on a
+    // stop signal the server simply ends; SQLite is safe to stop at any point.
+    tokio::select! {
+        result = axum::serve(listener, app) => result?,
+        () = stop_signal() => tracing::info!("stopping"),
+    }
     Ok(())
+}
+
+/// Makes sure the database file exists and only its owner can read it. It
+/// holds email addresses, host names and (encrypted) secrets. SQLite gives
+/// its side files the same permissions as the main file.
+fn restrict_to_owner(path: &std::path::Path) -> std::io::Result<()> {
+    let file = std::fs::OpenOptions::new().create(true).append(true).open(path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    }
+    drop(file);
+    Ok(())
+}
+
+/// Completes on Ctrl+C or on SIGTERM, which is what systemd and Docker send.
+async fn stop_signal() {
+    let ctrl_c = async {
+        let _ = tokio::signal::ctrl_c().await;
+    };
+    #[cfg(unix)]
+    let terminate = async {
+        use tokio::signal::unix::{SignalKind, signal};
+        match signal(SignalKind::terminate()) {
+            Ok(mut stream) => {
+                stream.recv().await;
+            }
+            Err(_) => std::future::pending().await,
+        }
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        () = ctrl_c => {}
+        () = terminate => {}
+    }
 }

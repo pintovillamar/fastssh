@@ -35,6 +35,10 @@ cargo build --release
 
 `target/release/fastssh` contains the interface and needs nothing else.
 
+Ready-made binaries for Linux (x86_64 and ARM) are attached to each
+[release](https://github.com/pintovillamar/fastssh/releases), and a container
+image is published as `ghcr.io/pintovillamar/fastssh`.
+
 ## Options
 
 Every flag also has an environment variable; `fastssh --help` lists them.
@@ -49,7 +53,8 @@ Every flag also has an environment variable; `fastssh --help` lists them.
 
 To reach FastSSH from other machines, put it behind a reverse proxy that
 provides https and pass `--public-url`. Without https, passwords and terminal
-sessions cross the network unencrypted.
+sessions cross the network unencrypted. [docs/DEPLOY.md](docs/DEPLOY.md) covers
+running it as a systemd service or a container, with proxy examples.
 
 ### Sign in with Google
 

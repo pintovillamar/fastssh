@@ -30,5 +30,20 @@ pub async fn serve(uri: Uri) -> Response {
     };
 
     let mime = mime_guess::from_path(name).first_or_octet_stream();
-    ([(header::CONTENT_TYPE, mime.as_ref())], file.data).into_response()
+    // Files under assets/ have a content hash in their name, so browsers may
+    // keep them forever. The page itself must always be asked for again, or
+    // an update would never be picked up.
+    let caching = if name.starts_with("assets/") {
+        "public, max-age=31536000, immutable"
+    } else {
+        "no-cache"
+    };
+    (
+        [
+            (header::CONTENT_TYPE, mime.as_ref()),
+            (header::CACHE_CONTROL, caching),
+        ],
+        file.data,
+    )
+        .into_response()
 }

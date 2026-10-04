@@ -1,0 +1,46 @@
+[Unit]
+Description=FastSSH web terminal
+Documentation=https://github.com/pintovillamar/fastssh
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/fastssh
+# Optional settings, one NAME=value per line, e.g. FASTSSH_PUBLIC_URL or the
+# Google client secret. Keep the file readable by root only.
+EnvironmentFile=-/etc/fastssh.env
+# %S is /var/lib; StateDirectory below creates the folder.
+Environment=FASTSSH_DATA_DIR=%S/fastssh
+# A shell as the throwaway service user is of no use to anyone.
+Environment=FASTSSH_NO_LOCAL_SHELL=true
+Restart=on-failure
+
+# Runs as an unprivileged user that systemd creates on the fly, and can write
+# nowhere except its own data folder.
+DynamicUser=yes
+StateDirectory=fastssh
+StateDirectoryMode=0700
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+CapabilityBoundingSet=
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
