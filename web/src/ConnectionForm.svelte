@@ -175,7 +175,7 @@
         spellcheck="false"
         placeholder={saved.privateKey
           ? 'Saved — paste another key to replace it'
-          : 'Paste the private key (the file without .pub), starting with -----BEGIN'}
+          : 'Paste the private key: the file without .pub, or a PuTTY .ppk file'}
       ></textarea>
     </div>
     <label>

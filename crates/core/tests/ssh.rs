@@ -233,3 +233,73 @@ async fn unusable_keys_are_reported() {
         Err(KeyError::Invalid(_))
     ));
 }
+
+#[tokio::test]
+async fn keys_with_windows_line_endings_are_read() {
+    let key = CLIENT_KEY.replace('\n', "\r\n");
+    assert!(key.contains("\r\n"));
+    ssh::decode_key(key, None).await.expect("a key file saved on Windows");
+}
+
+// The client key above, converted by PuTTYgen 0.83 to its own formats.
+const PUTTY_KEY_V3: &str = "PuTTY-User-Key-File-3: ssh-ed25519\n\
+Encryption: none\n\
+Comment: test\n\
+Public-Lines: 2\n\
+AAAAC3NzaC1lZDI1NTE5AAAAIEGy1VjH2GSKCH7883ZklKYwdeI+edlwg4SZX383\n\
+0/lx\n\
+Private-Lines: 1\n\
+AAAAIFfRhPCRgwn+Ag6tnleidWcA441jlNkqcuuGJAjfFZi5\n\
+Private-MAC: cb94ce665a0c0168d647e35fe7c3abcb796818366bfd965225cf4ac5fcd3876c\n\
+";
+const PUTTY_KEY_V2: &str = "PuTTY-User-Key-File-2: ssh-ed25519\n\
+Encryption: none\n\
+Comment: test\n\
+Public-Lines: 2\n\
+AAAAC3NzaC1lZDI1NTE5AAAAIEGy1VjH2GSKCH7883ZklKYwdeI+edlwg4SZX383\n\
+0/lx\n\
+Private-Lines: 1\n\
+AAAAIFfRhPCRgwn+Ag6tnleidWcA441jlNkqcuuGJAjfFZi5\n\
+Private-MAC: fa1507638750df309b9c688fb8cee84003a33126\n\
+";
+/// Passphrase: hunter2. Made with a deliberately cheap key derivation so the
+/// test stays fast.
+const PUTTY_KEY_LOCKED: &str = "PuTTY-User-Key-File-3: ssh-ed25519\n\
+Encryption: aes256-cbc\n\
+Comment: test\n\
+Public-Lines: 2\n\
+AAAAC3NzaC1lZDI1NTE5AAAAIEGy1VjH2GSKCH7883ZklKYwdeI+edlwg4SZX383\n\
+0/lx\n\
+Key-Derivation: Argon2id\n\
+Argon2-Memory: 64\n\
+Argon2-Passes: 1\n\
+Argon2-Parallelism: 1\n\
+Argon2-Salt: f3c6025a737c08c348e0f2efc552cf42\n\
+Private-Lines: 1\n\
+PUe35LkuOZEaFPAI7NP18OV7ekk5coGp4OBTSbotSyT2ddmoc+lKmLsF34IOSH9F\n\
+Private-MAC: 0d67e26654ad2ec2615dbbe9a7457d9f5b65b3d75ac876975a8c81e9544e8d2c\n\
+";
+
+#[tokio::test]
+async fn putty_keys_are_read() {
+    let expected = decode_secret_key(CLIENT_KEY, None).unwrap();
+    // PuTTYgen on Windows writes CRLF line endings.
+    for text in [PUTTY_KEY_V3, PUTTY_KEY_V2, &PUTTY_KEY_V3.replace('\n', "\r\n")] {
+        let key = ssh::decode_key(text.to_owned(), None).await.expect("a PuTTY key");
+        assert_eq!(key.public_key().key_data(), expected.public_key().key_data());
+    }
+}
+
+#[tokio::test]
+async fn locked_putty_keys_ask_for_their_passphrase() {
+    assert!(matches!(
+        ssh::decode_key(PUTTY_KEY_LOCKED.into(), None).await,
+        Err(KeyError::NeedsPassphrase)
+    ));
+    assert!(ssh::decode_key(PUTTY_KEY_LOCKED.into(), Some("wrong".into())).await.is_err());
+    let expected = decode_secret_key(CLIENT_KEY, None).unwrap();
+    let key = ssh::decode_key(PUTTY_KEY_LOCKED.into(), Some("hunter2".into()))
+        .await
+        .expect("the right passphrase");
+    assert_eq!(key.public_key().key_data(), expected.public_key().key_data());
+}

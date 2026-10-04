@@ -124,9 +124,12 @@ pub enum KeyError {
     Invalid(String),
 }
 
-/// Parses a private key (OpenSSH or PEM text), decrypting it if a passphrase
-/// is given.
+/// Parses a private key (OpenSSH, PEM or PuTTY's `.ppk` text), decrypting it
+/// if a passphrase is given.
 pub async fn decode_key(text: String, passphrase: Option<String>) -> Result<PrivateKey, KeyError> {
+    if passphrase.is_none() && is_locked_putty_key(&text) {
+        return Err(KeyError::NeedsPassphrase);
+    }
     // Decrypting a key runs a deliberately slow KDF; keep it off async threads.
     let decoded = tokio::task::spawn_blocking(move || {
         russh::keys::decode_secret_key(&text, passphrase.as_deref())
@@ -138,6 +141,17 @@ pub async fn decode_key(text: String, passphrase: Option<String>) -> Result<Priv
         Ok(Err(err)) => Err(KeyError::Invalid(err.to_string())),
         Err(err) => Err(KeyError::Invalid(err.to_string())),
     }
+}
+
+/// PuTTY keys say in an `Encryption:` header line whether they are locked.
+/// The key parser reports a locked one as a plain parse error, so it is
+/// recognised here instead.
+fn is_locked_putty_key(text: &str) -> bool {
+    text.trim_start().starts_with("PuTTY-User-Key-File-")
+        && text.lines().any(|line| {
+            line.strip_prefix("Encryption:")
+                .is_some_and(|value| value.trim() != "none")
+        })
 }
 
 impl SshClient {
