@@ -1,6 +1,9 @@
 [workspace]
 resolver = "3"
-members = ["crates/core", "crates/server"]
+members = ["crates/core", "crates/server", "crates/desktop"]
+# The desktop app needs system libraries (WebKitGTK on Linux), so plain
+# `cargo build` and `cargo test` leave it out. Build it with `-p fastssh-desktop`.
+default-members = ["crates/core", "crates/server"]
 
 [workspace.package]
 version = "0.1.0"

@@ -105,7 +105,8 @@ are useless without the owner's passphrase.
    git push origin main v0.2.0
    ```
 
-The release workflow builds both binaries, publishes the GitHub release with
-checksums and pushes the container image. To rehearse without publishing,
+The release workflow builds both server binaries and the desktop app
+(AppImage and `.deb`), publishes the GitHub release with checksums and pushes
+the container image. To rehearse without publishing,
 run the workflow by hand from the Actions tab or push to a branch named
 `release-dry-run`.

@@ -31,6 +31,8 @@ export interface Session {
   google: boolean
   signup: boolean
   local_shell: boolean
+  /** The desktop app: one local profile with a master password and no email. */
+  desktop: boolean
 }
 
 /** Called when the server says the session ended or the vault locked. */

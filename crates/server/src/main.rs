@@ -1,19 +1,9 @@
-mod api;
-mod assets;
-mod auth;
-mod error;
-mod google;
-mod guard;
-mod terminal;
-
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::Arc;
 
-use anyhow::{Context, Result, bail};
-use axum::{Router, http::HeaderMap, http::header, middleware, routing::get};
+use anyhow::{Context, Result};
 use clap::Parser;
-use fastssh_core::{Store, store::User};
+use fastssh::Options;
 use tokio::net::TcpListener;
 
 /// FastSSH server: serves the web interface and the terminal sessions behind it.
@@ -55,47 +45,6 @@ struct Args {
     google_client_secret: Option<String>,
 }
 
-pub struct Config {
-    pub allow_signup: bool,
-    pub local_shell: bool,
-    pub secure_cookies: bool,
-    pub google: Option<google::Google>,
-    /// `--public-url` without a trailing slash.
-    public_base: Option<String>,
-}
-
-impl Config {
-    /// The local shell runs as the server's own OS user, so it is for the
-    /// admin only.
-    pub fn local_shell_for(&self, user: &User) -> bool {
-        self.local_shell && user.is_admin
-    }
-
-    /// Where the browser reaches us, e.g. `https://ssh.example.com`. Without
-    /// `--public-url` we are on localhost (startup checks this when it
-    /// matters) and use whichever local name the browser used.
-    pub fn base_url(&self, headers: &HeaderMap) -> String {
-        match &self.public_base {
-            Some(base) => base.clone(),
-            None => {
-                let host = headers
-                    .get(header::HOST)
-                    .and_then(|v| v.to_str().ok())
-                    .unwrap_or("localhost");
-                format!("http://{host}")
-            }
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct AppState {
-    pub store: Store,
-    pub config: Arc<Config>,
-    pub keys: Arc<auth::Keys>,
-    pub limiter: Arc<auth::Limiter>,
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -116,67 +65,21 @@ async fn main() -> Result<()> {
         );
     }
 
-    let google = match (args.google_client_id, args.google_client_secret) {
-        (Some(id), Some(secret)) => {
-            if !local_only && args.public_url.is_none() {
-                bail!("Google sign-in needs --public-url so Google knows where to send people back");
-            }
-            let google = google::Google::new(id, secret);
-            url::Url::parse(&google.auth_url).context("FASTSSH_GOOGLE_AUTH_URL")?;
-            Some(google)
-        }
-        _ => None,
-    };
-
     let data_dir = match args.data_dir {
         Some(dir) => dir,
         None => dirs::data_dir()
             .context("no data folder for this user; pass --data-dir")?
             .join("fastssh"),
     };
-    std::fs::create_dir_all(&data_dir)
-        .with_context(|| format!("creating {}", data_dir.display()))?;
-    let db_path = data_dir.join("fastssh.db");
-    restrict_to_owner(&db_path).with_context(|| format!("preparing {}", db_path.display()))?;
-    let store = Store::open(&db_path).with_context(|| format!("opening {}", db_path.display()))?;
-
-    let policy = guard::Policy {
+    let app = fastssh::app(Options {
+        data_dir,
         local_only,
-        public_host: args.public_url.as_ref().and_then(|url| {
-            let host = url.host_str()?;
-            Some(match url.port() {
-                Some(port) => format!("{host}:{port}"),
-                None => host.to_owned(),
-            })
-        }),
-    };
-    let state = AppState {
-        store,
-        config: Arc::new(Config {
-            allow_signup: args.allow_signup,
-            local_shell: !args.no_local_shell,
-            secure_cookies: https,
-            google,
-            public_base: args
-                .public_url
-                .map(|url| url.as_str().trim_end_matches('/').to_owned()),
-        }),
-        keys: Arc::default(),
-        limiter: Arc::default(),
-    };
-
-    let app = Router::new()
-        .route("/ws", get(terminal::upgrade))
-        .nest(
-            "/api",
-            Router::new()
-                .merge(auth::router())
-                .merge(google::router())
-                .merge(api::router()),
-        )
-        .fallback(assets::serve)
-        .layer(middleware::from_fn_with_state(policy, guard::check))
-        .with_state(state);
+        public_url: args.public_url,
+        allow_signup: args.allow_signup,
+        local_shell: !args.no_local_shell,
+        google: args.google_client_id.zip(args.google_client_secret),
+        desktop: false,
+    })?;
 
     let listener = TcpListener::bind(args.listen)
         .await
@@ -186,23 +89,9 @@ async fn main() -> Result<()> {
     // Open terminals would keep a "graceful" shutdown waiting forever, so on a
     // stop signal the server simply ends; SQLite is safe to stop at any point.
     tokio::select! {
-        result = axum::serve(listener, app) => result?,
+        result = fastssh::serve(listener, app) => result?,
         () = stop_signal() => tracing::info!("stopping"),
     }
-    Ok(())
-}
-
-/// Makes sure the database file exists and only its owner can read it. It
-/// holds email addresses, host names and (encrypted) secrets. SQLite gives
-/// its side files the same permissions as the main file.
-fn restrict_to_owner(path: &std::path::Path) -> std::io::Result<()> {
-    let file = std::fs::OpenOptions::new().create(true).append(true).open(path)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
-    }
-    drop(file);
     Ok(())
 }
 

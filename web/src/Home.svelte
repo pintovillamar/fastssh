@@ -79,8 +79,8 @@
     {/if}
 
     <footer>
-      <span>{session.email}</span>
-      <button class="plain" onclick={leave}>Sign out</button>
+      <span>{session.desktop ? '' : session.email}</span>
+      <button class="plain" onclick={leave}>{session.desktop ? 'Lock' : 'Sign out'}</button>
     </footer>
   {/if}
 </section>

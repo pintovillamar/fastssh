@@ -1,16 +1,19 @@
 # FastSSH
 
-A fast, minimal terminal and SSH client: one Rust binary that serves a browser
-interface, with a desktop app planned on the same core.
+A fast, minimal terminal and SSH client. It runs two ways from the same code:
+as a server you open in a browser, and as a desktop app.
 
-Status: early. It has accounts, an encrypted vault for saved passwords and
-keys, SSH sessions and local shells in browser tabs, and host key checking.
+Status: early. It has an encrypted vault for saved passwords and keys, SSH
+sessions and local shells in tabs, host key checking, and accounts on the
+server.
 
 ## Layout
 
 - `crates/core` — SSH, local shells, SQLite storage and the vault. No web code.
 - `crates/server` — the `fastssh` binary: accounts, JSON API, websockets,
-  embedded interface.
+  embedded interface. Also a library, which the desktop app embeds.
+- `crates/desktop` — the desktop app (Tauri): a native window around the same
+  server, running privately inside the app.
 - `web` — the interface (Svelte + xterm.js), built into `web/dist`.
 
 ## Run
@@ -35,9 +38,34 @@ cargo build --release
 
 `target/release/fastssh` contains the interface and needs nothing else.
 
-Ready-made binaries for Linux (x86_64 and ARM) are attached to each
-[release](https://github.com/pintovillamar/fastssh/releases), and a container
-image is published as `ghcr.io/pintovillamar/fastssh`.
+Ready-made server binaries for Linux (x86_64 and ARM) and the desktop app are
+attached to each [release](https://github.com/pintovillamar/fastssh/releases),
+and a container image is published as `ghcr.io/pintovillamar/fastssh`.
+
+## Desktop app
+
+The desktop app needs no server and no account. It asks for a master password
+the first time, which encrypts what you save, and its local shell is your own
+computer's. Nothing is opened to the network.
+
+Releases include an AppImage and a `.deb` for Linux. To run it from source
+you need WebKitGTK 4.1 (`webkit2gtk-4.1` on Arch, `libwebkit2gtk-4.1-dev` on
+Debian and Ubuntu):
+
+```sh
+cd web && npm install && npm run build && cd ..
+cargo run -p fastssh-desktop
+```
+
+To build the AppImage and `.deb` yourself:
+
+```sh
+cd crates/desktop && npm install && npx tauri build
+```
+
+Its data lives in `~/.local/share/io.github.pintovillamar.fastssh`, separate
+from the server's. Plain `cargo build` and `cargo test` skip the desktop app,
+so the server can be built without WebKitGTK.
 
 ## Options
 

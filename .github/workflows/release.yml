@@ -1,7 +1,7 @@
 name: Release
 
-# Pushing a tag like v0.2.0 builds the binaries, publishes a GitHub release
-# and pushes the container image.
+# Pushing a tag like v0.2.0 builds the server binaries and the desktop app,
+# publishes a GitHub release and pushes the container image.
 #
 # Running it by hand, or pushing to the `release-dry-run` branch, does the
 # same builds but publishes nothing. Use that to rehearse.
@@ -87,6 +87,53 @@ jobs:
           path: target/release/fastssh
           if-no-files-found: error
 
+  desktop:
+    name: Desktop app (x86_64)
+    # Same reasoning as the server builds: an older system gives wider reach.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: System libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev file
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            crates/desktop/package-lock.json
+      - name: Build the interface
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-desktop
+      - name: Build and bundle
+        working-directory: crates/desktop
+        run: |
+          npm ci
+          npx tauri build
+
+      - name: Package
+        run: |
+          cp target/release/bundle/appimage/*.AppImage "FastSSH-$VERSION-x86_64.AppImage"
+          cp target/release/bundle/deb/*.deb "FastSSH-$VERSION-amd64.deb"
+          for file in FastSSH-*; do sha256sum "$file" > "$file.sha256"; done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: archive-desktop
+          path: FastSSH-*
+          if-no-files-found: error
+
   image:
     name: Container image
     needs: build
@@ -134,7 +181,7 @@ jobs:
 
   release:
     name: GitHub release
-    needs: [build, image]
+    needs: [build, image, desktop]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -156,4 +203,4 @@ jobs:
             --generate-notes \
             --verify-tag \
             $prerelease \
-            *.tar.gz *.tar.gz.sha256
+            ./*

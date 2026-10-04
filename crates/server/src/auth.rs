@@ -241,6 +241,9 @@ struct SessionInfo {
     google: bool,
     signup: bool,
     local_shell: bool,
+    /// The desktop app: one local profile, identified by nothing but its
+    /// master password.
+    desktop: bool,
 }
 
 async fn session(State(state): State<AppState>, headers: HeaderMap) -> ApiResult<Json<SessionInfo>> {
@@ -263,13 +266,25 @@ async fn session(State(state): State<AppState>, headers: HeaderMap) -> ApiResult
         email: user.map(|u| u.email),
         google: state.config.google.is_some(),
         signup: state.config.allow_signup,
+        desktop: state.config.desktop,
     }))
 }
 
 #[derive(Deserialize)]
 struct Credentials {
+    #[serde(default)]
     email: String,
     password: String,
+}
+
+/// The desktop app's single profile still needs an account row; this is the
+/// address it is stored under. Nobody types it.
+const DESKTOP_EMAIL: &str = "desktop@fastssh.local";
+
+impl Credentials {
+    fn email(&self, state: &AppState) -> &str {
+        if state.config.desktop { DESKTOP_EMAIL } else { &self.email }
+    }
 }
 
 async fn signup(State(state): State<AppState>, Json(body): Json<Credentials>) -> ApiResult<Response> {
@@ -278,7 +293,8 @@ async fn signup(State(state): State<AppState>, Json(body): Json<Credentials>) ->
     if state.store.has_users()? && !state.config.allow_signup {
         return Err(fastssh_core::store::StoreError::SignupClosed.into());
     }
-    normalize_email(&body.email)?;
+    let email = body.email(&state).to_owned();
+    normalize_email(&email)?;
     check_passphrase(&body.password)?;
 
     let salt = vault::new_salt().to_vec();
@@ -291,7 +307,7 @@ async fn signup(State(state): State<AppState>, Json(body): Json<Credentials>) ->
     };
     let user = state
         .store
-        .create_user(&body.email, Some(record), state.config.allow_signup, now())?;
+        .create_user(&email, Some(record), state.config.allow_signup, now())?;
     tracing::info!("account created: {}", user.email);
 
     let cookie = start_session(&state, user.id, Some(key))?;
@@ -299,7 +315,7 @@ async fn signup(State(state): State<AppState>, Json(body): Json<Credentials>) ->
 }
 
 async fn login(State(state): State<AppState>, Json(body): Json<Credentials>) -> ApiResult<Response> {
-    let email = body.email.trim().to_lowercase();
+    let email = body.email(&state).trim().to_lowercase();
     state.limiter.check(&email)?;
 
     let user = state.store.user_by_email(&email)?;
@@ -320,7 +336,8 @@ async fn login(State(state): State<AppState>, Json(body): Json<Credentials>) -> 
     });
     let (Some(user), Some(key)) = (user, unlocked) else {
         state.limiter.failed(&email);
-        return Err(ApiError::new(StatusCode::UNAUTHORIZED, "wrong email or password"));
+        let message = if state.config.desktop { "wrong password" } else { "wrong email or password" };
+        return Err(ApiError::new(StatusCode::UNAUTHORIZED, message));
     };
     state.limiter.succeeded(&email);
 

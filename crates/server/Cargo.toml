@@ -23,3 +23,8 @@ tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "net", "s
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 url = "2.5.8"
+
+[dev-dependencies]
+http-body-util = "0.1.5"
+tempfile = "3.27.0"
+tower = { version = "0.5.3", features = ["util"] }

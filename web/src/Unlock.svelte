@@ -6,7 +6,7 @@
   // svelte-ignore state_referenced_locally
   const creating = session.state === 'new_vault'
   // svelte-ignore state_referenced_locally
-  const word = session.has_password ? 'password' : 'vault passphrase'
+  const word = session.desktop ? 'master password' : session.has_password ? 'password' : 'vault passphrase'
   let passphrase = $state('')
   let confirm = $state('')
   let error = $state('')
@@ -39,11 +39,13 @@
 <div class="screen">
   <form onsubmit={submit}>
     <div class="brand">FastSSH</div>
-    <h1>{creating ? 'Create a vault passphrase' : 'Unlock your vault'}</h1>
+    <h1>{creating ? 'Create a vault passphrase' : session.desktop ? 'Unlock FastSSH' : 'Unlock your vault'}</h1>
     <p class="help">
       {#if creating}
         Your saved passwords and keys are encrypted with this passphrase. Google signs you in, but
         only the passphrase can unlock them. If you forget it, they cannot be recovered.
+      {:else if session.desktop}
+        Enter your {word} to unlock your saved passwords and keys.
       {:else}
         Signed in as {session.email}. Enter your {word} to unlock your saved passwords and keys.
       {/if}
@@ -66,6 +68,8 @@
     {#if error}<p class="error" role="alert">{error}</p>{/if}
 
     <button type="submit" class="primary" disabled={busy}>{creating ? 'Create vault' : 'Unlock'}</button>
-    <button type="button" class="plain switch" onclick={leave}>Sign out</button>
+    {#if !session.desktop}
+      <button type="button" class="plain switch" onclick={leave}>Sign out</button>
+    {/if}
   </form>
 </div>
