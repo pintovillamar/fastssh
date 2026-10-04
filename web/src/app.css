@@ -46,8 +46,12 @@ button {
   padding: 9px 14px;
 }
 
-button:hover {
-  background: var(--surface-hover);
+/* Touch screens leave :hover on the last tapped button, so hover styles are
+   for devices with a real pointer only. */
+@media (hover: hover) {
+  button:hover {
+    background: var(--surface-hover);
+  }
 }
 
 button.primary {
@@ -57,8 +61,10 @@ button.primary {
   font-weight: 600;
 }
 
-button.primary:hover {
-  filter: brightness(1.08);
+@media (hover: hover) {
+  button.primary:hover {
+    filter: brightness(1.08);
+  }
 }
 
 button.danger {
@@ -70,8 +76,10 @@ button.plain {
   background: none;
 }
 
-button.plain:hover {
-  background: var(--surface-hover);
+@media (hover: hover) {
+  button.plain:hover {
+    background: var(--surface-hover);
+  }
 }
 
 input,
@@ -151,7 +159,7 @@ button:disabled {
 
 /* Sign-in, sign-up and unlock: one centred card. */
 .screen {
-  height: 100dvh;
+  height: var(--app-height, 100dvh);
   display: grid;
   place-items: center;
   padding: 24px 16px;

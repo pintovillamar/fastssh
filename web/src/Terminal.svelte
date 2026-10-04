@@ -3,6 +3,8 @@
   import { Terminal } from '@xterm/xterm'
   import { FitAddon } from '@xterm/addon-fit'
   import { WebglAddon } from '@xterm/addon-webgl'
+  import KeyBar, { type BarKey, type Modifiers } from './KeyBar.svelte'
+  import { applyModifiers, barKeySequence } from './keys'
 
   let { connectionId, visible }: { connectionId: number | null; visible: boolean } = $props()
 
@@ -18,6 +20,34 @@
   let term: Terminal | undefined
   let fit: FitAddon | undefined
   let socket: WebSocket | undefined
+
+  // The extra-keys bar is for devices whose main input is touch.
+  const touch = matchMedia('(pointer: coarse)')
+  let showKeyBar = $state(touch.matches)
+  let modifiers = $state<Modifiers>({ ctrl: false, alt: false })
+  const encoder = new TextEncoder()
+
+  function sendInput(text: string) {
+    if (socket?.readyState === WebSocket.OPEN) socket.send(encoder.encode(text))
+  }
+
+  function pressBarKey(key: BarKey) {
+    sendInput(barKeySequence(key, modifiers, term?.modes.applicationCursorKeysMode ?? false))
+    modifiers = { ctrl: false, alt: false }
+    term?.focus()
+  }
+
+  /** Text from the keyboard or the bar's symbol keys, with armed modifiers applied. */
+  function typeText(text: string) {
+    if (modifiers.ctrl || modifiers.alt) {
+      const modified = applyModifiers(text, modifiers)
+      if (modified !== null) {
+        modifiers = { ctrl: false, alt: false }
+        text = modified
+      }
+    }
+    sendInput(text)
+  }
 
   function sendControl(message: object) {
     if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message))
@@ -82,7 +112,6 @@
     term = t
     fit = f
 
-    const encoder = new TextEncoder()
     const dim = (text: string) => t.write(`\r\n\x1b[2m${text}\x1b[0m\r\n`)
 
     async function onControl(message: any) {
@@ -127,12 +156,15 @@
     }
 
     t.onData((data) => {
-      if (socket) send(encoder.encode(data))
+      if (socket) typeText(data)
       else if (data === '\r') connect()
     })
     // Mouse reports can contain bytes that are not valid UTF-8.
     t.onBinary((data) => send(Uint8Array.from(data, (c) => c.charCodeAt(0))))
     t.onResize(({ cols, rows }) => send(JSON.stringify({ type: 'resize', cols, rows })))
+
+    const onTouchChange = () => (showKeyBar = touch.matches)
+    touch.addEventListener('change', onTouchChange)
 
     const observer = new ResizeObserver(() => {
       // Fitting a hidden terminal would shrink the remote shell to nothing.
@@ -144,6 +176,7 @@
     t.focus()
 
     return () => {
+      touch.removeEventListener('change', onTouchChange)
       observer.disconnect()
       const ws = socket
       socket = undefined
@@ -154,7 +187,12 @@
   })
 </script>
 
-<div class="terminal" bind:this={host}></div>
+<div class="session">
+  <div class="terminal" bind:this={host}></div>
+  {#if showKeyBar}
+    <KeyBar bind:modifiers onkey={pressBarKey} ontext={(text) => { typeText(text); term?.focus() }} />
+  {/if}
+</div>
 
 {#if question}
   <div class="backdrop">
@@ -192,8 +230,15 @@
 {/if}
 
 <style>
-  .terminal {
+  .session {
     height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .terminal {
+    flex: 1;
+    min-height: 0;
     padding: 6px;
     box-sizing: border-box;
   }

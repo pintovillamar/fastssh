@@ -91,10 +91,18 @@ Everything is in one SQLite file, `fastssh.db`, in the data folder. Connection
 names, hosts and usernames are stored as plain text; secrets are stored
 encrypted (XChaCha20-Poly1305, key wrapped with Argon2id).
 
+## On a phone
+
+On touch devices the terminal shows a row of keys a phone keyboard lacks:
+Esc, Tab, arrows, Home/End, PgUp/PgDn and a few symbols. Ctrl and Alt are
+sticky: tap one, then the next key (from the row or the keyboard) is sent
+with it.
+
 ## Tests
 
 ```sh
 cargo test
+cd web && npm test
 ```
 
 The SSH tests run against a small SSH server started inside the test process.

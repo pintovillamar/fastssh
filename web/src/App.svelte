@@ -36,6 +36,26 @@
   onSessionLost(refresh)
   refresh()
 
+  // Keep the app exactly as tall as the visible area. When a phone's
+  // on-screen keyboard opens, not every browser shrinks the page for it, and
+  // the terminal's last lines would end up underneath the keyboard.
+  $effect(() => {
+    const viewport = window.visualViewport
+    if (!viewport) return
+    const update = () => {
+      document.documentElement.style.setProperty('--app-height', `${viewport.height}px`)
+      // Some browsers scroll the page up to reveal the focused field instead.
+      window.scrollTo(0, 0)
+    }
+    update()
+    viewport.addEventListener('resize', update)
+    viewport.addEventListener('scroll', update)
+    return () => {
+      viewport.removeEventListener('resize', update)
+      viewport.removeEventListener('scroll', update)
+    }
+  })
+
   function open(connection: SavedConnection | null) {
     const tab = {
       id: nextId++,
@@ -97,7 +117,7 @@
 
 <style>
   .app {
-    height: 100dvh;
+    height: var(--app-height, 100dvh);
     display: flex;
     flex-direction: column;
     box-sizing: border-box;
