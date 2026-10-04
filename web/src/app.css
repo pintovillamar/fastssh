@@ -1,0 +1,23 @@
+:root {
+  --window: #000000;
+  --text: #e6e6e6;
+  --dim: #6b6b6b;
+  --accent: #1ed760;
+  color-scheme: dark;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--window);
+  color: var(--text);
+  font-family: system-ui, sans-serif;
+  /* The terminal handles its own scrolling; the page must never bounce. */
+  overflow: hidden;
+  overscroll-behavior: none;
+}
