@@ -113,3 +113,7 @@ The SSH tests run against a small SSH server started inside the test process.
   HttpOnly and SameSite.
 - Five wrong passwords for one email block further attempts for five minutes.
 - Signing out ends that session's open terminals.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
