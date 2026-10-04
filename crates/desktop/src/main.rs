@@ -10,6 +10,8 @@
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 fn main() {
+    work_around_nvidia_wayland();
+
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -42,4 +44,22 @@ fn main() {
         })
         .run(tauri::generate_context!())
         .expect("error while running FastSSH");
+}
+
+/// With NVIDIA's driver on Wayland, WebKitGTK's default renderer crashes the
+/// app at startup ("Error 71 (Protocol error) dispatching to Wayland
+/// display"). Turning that renderer off avoids it. Setting the variable
+/// yourself, to any value, takes precedence.
+fn work_around_nvidia_wayland() {
+    #[cfg(target_os = "linux")]
+    {
+        const VARIABLE: &str = "WEBKIT_DISABLE_DMABUF_RENDERER";
+        let nvidia = std::path::Path::new("/proc/driver/nvidia").exists();
+        let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some();
+        if nvidia && wayland && std::env::var_os(VARIABLE).is_none() {
+            // SAFETY: this runs first thing in `main`, before any other
+            // thread exists that could be reading the environment.
+            unsafe { std::env::set_var(VARIABLE, "1") };
+        }
+    }
 }
