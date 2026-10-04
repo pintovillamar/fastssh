@@ -16,9 +16,9 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use fastssh_core::{
-    LocalShell, Shell,
+    LocalShell, Secrets, Shell,
     ssh::{self, KeyError},
-    store::AuthMethod,
+    store::AuthKind,
 };
 use futures_util::{
     SinkExt, StreamExt,
@@ -28,6 +28,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
 use crate::AppState;
+use crate::auth::Unlocked;
 
 const SECRET_ATTEMPTS: usize = 3;
 
@@ -88,6 +89,7 @@ enum ClientMsg {
 pub async fn upgrade(
     ws: WebSocketUpgrade,
     State(state): State<AppState>,
+    account: Unlocked,
     headers: HeaderMap,
     Query(params): Query<Params>,
 ) -> Response {
@@ -96,7 +98,7 @@ pub async fn upgrade(
     if !headers.contains_key(header::ORIGIN) {
         return (StatusCode::FORBIDDEN, "websocket without origin refused").into_response();
     }
-    ws.on_upgrade(move |socket| session(socket, state, params))
+    ws.on_upgrade(move |socket| session(socket, state, account, params))
 }
 
 /// The browser end of a session, plus the terminal size it last reported.
@@ -140,7 +142,7 @@ impl Browser {
     }
 }
 
-async fn session(socket: WebSocket, state: AppState, params: Params) {
+async fn session(socket: WebSocket, state: AppState, mut account: Unlocked, params: Params) {
     let (tx, rx) = socket.split();
     let mut browser = Browser {
         tx,
@@ -150,9 +152,11 @@ async fn session(socket: WebSocket, state: AppState, params: Params) {
     };
 
     let opened = match params.connection {
-        None => LocalShell::spawn(browser.cols, browser.rows)
-            .map(|(shell, output)| (Shell::Local(shell), output)),
-        Some(id) => open_ssh(&mut browser, &state, id).await,
+        None if state.config.local_shell_for(&account.user) => {
+            LocalShell::spawn(browser.cols, browser.rows).map(|(shell, output)| (Shell::Local(shell), output))
+        }
+        None => Err(anyhow::anyhow!("the local shell is not available to this account")),
+        Some(id) => open_ssh(&mut browser, &state, &account, id).await,
     };
     let (shell, output) = match opened {
         Ok(pair) => pair,
@@ -164,9 +168,13 @@ async fn session(socket: WebSocket, state: AppState, params: Params) {
         }
     };
 
-    tracing::info!("session opened");
+    tracing::info!("session opened for {}", account.user.email);
     if browser.send(ServerMsg::Ready).await.is_ok() {
-        pump(&mut browser, shell, output).await;
+        tokio::select! {
+            _ = pump(&mut browser, shell, output) => {}
+            // Signing out ends every terminal the session had open.
+            _ = account.ended() => {}
+        }
     }
     let _ = browser.tx.close().await;
     tracing::info!("session closed");
@@ -175,14 +183,16 @@ async fn session(socket: WebSocket, state: AppState, params: Params) {
 async fn open_ssh(
     browser: &mut Browser,
     state: &AppState,
+    account: &Unlocked,
     id: i64,
 ) -> Result<(Shell, mpsc::Receiver<Vec<u8>>)> {
-    let connection = state.store.connection(id)?;
+    let connection = state.store.connection(account.user.id, id)?;
+    let mut secrets = Secrets::open(connection.secrets.as_deref(), &account.key)?;
 
     // The connect future pauses inside the host key check until we answer its
     // question, so both have to be driven together.
     let (question_tx, mut questions) = mpsc::channel(1);
-    let connect = ssh::connect(&connection, state.store.clone(), question_tx);
+    let connect = ssh::connect(account.user.id, &connection, state.store.clone(), question_tx);
     tokio::pin!(connect);
     let mut client = loop {
         tokio::select! {
@@ -205,45 +215,45 @@ async fn open_ssh(
 
     let details = &connection.details;
     let who = format!("{}@{}", details.username, details.host);
-    match &details.auth {
-        AuthMethod::Password => {
+    match details.auth {
+        AuthKind::Password => {
+            // A saved password gets the first try; if the server no longer
+            // accepts it, fall back to asking.
+            let mut accepted = match secrets.password.take() {
+                Some(saved) => client.auth_password(saved).await?,
+                None => false,
+            };
             let mut message = format!("Password for {who}");
-            let mut accepted = false;
             for _ in 0..SECRET_ATTEMPTS {
-                let password = browser.ask_secret(SecretKind::Password, &message).await?;
-                if client.auth_password(password).await? {
-                    accepted = true;
+                if accepted {
                     break;
                 }
+                let password = browser.ask_secret(SecretKind::Password, &message).await?;
+                accepted = client.auth_password(password).await?;
                 message = format!("Wrong password. Password for {who}");
             }
             if !accepted {
                 bail!("authentication failed for {who}");
             }
         }
-        AuthMethod::KeyFile { path } => {
-            let key = match ssh::load_key(path, None).await {
-                Ok(key) => key,
-                Err(KeyError::NeedsPassphrase) => {
-                    let mut message = format!("Passphrase for {path}");
-                    let mut unlocked = None;
-                    for _ in 0..SECRET_ATTEMPTS {
-                        let passphrase = browser.ask_secret(SecretKind::Passphrase, &message).await?;
-                        if let Ok(key) = ssh::load_key(path, Some(passphrase)).await {
-                            unlocked = Some(key);
-                            break;
-                        }
-                        message = format!("Wrong passphrase. Passphrase for {path}");
-                    }
-                    match unlocked {
-                        Some(key) => key,
-                        None => bail!("could not unlock {path}"),
-                    }
-                }
-                Err(err) => return Err(err.into()),
+        AuthKind::Key => {
+            let Some(text) = secrets.private_key.take() else {
+                bail!("no private key is saved for this connection; edit it and add one");
             };
+            let mut attempt = ssh::decode_key(text.clone(), secrets.key_passphrase.take()).await;
+            let mut message = "Passphrase for this connection's private key".to_owned();
+            for _ in 0..SECRET_ATTEMPTS {
+                // An encrypted key with no passphrase, or with a wrong saved one.
+                if !matches!(attempt, Err(KeyError::NeedsPassphrase | KeyError::Invalid(_))) {
+                    break;
+                }
+                let passphrase = browser.ask_secret(SecretKind::Passphrase, &message).await?;
+                attempt = ssh::decode_key(text.clone(), Some(passphrase)).await;
+                message = "Wrong passphrase. Passphrase for this connection's private key".to_owned();
+            }
+            let key = attempt.map_err(|_| anyhow::anyhow!("could not unlock the private key"))?;
             if !client.auth_key(key).await? {
-                bail!("{} did not accept the key {path} for user {}", details.host, details.username);
+                bail!("{} did not accept this key for user {}", details.host, details.username);
             }
         }
     }

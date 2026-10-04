@@ -1,8 +1,21 @@
 <script lang="ts">
   import ConnectionForm from './ConnectionForm.svelte'
-  import { listConnections, type SavedConnection } from './api'
+  import { listConnections, signOut, type SavedConnection, type Session } from './api'
 
-  let { onopen }: { onopen: (connection: SavedConnection | null) => void } = $props()
+  let {
+    session,
+    onopen,
+    onsession,
+  }: {
+    session: Session
+    onopen: (connection: SavedConnection | null) => void
+    onsession: () => void
+  } = $props()
+
+  async function leave() {
+    await signOut().catch(() => {})
+    onsession()
+  }
 
   let connections = $state<SavedConnection[]>([])
   let error = $state('')
@@ -51,17 +64,24 @@
           <button class="plain edit" onclick={() => (editing = connection)}>Edit</button>
         </li>
       {/each}
-      <li>
-        <button class="plain row" onclick={() => onopen(null)}>
-          <span class="name">Local shell</span>
-          <span class="where">A shell on the machine running FastSSH</span>
-        </button>
-      </li>
+      {#if session.local_shell}
+        <li>
+          <button class="plain row" onclick={() => onopen(null)}>
+            <span class="name">Local shell</span>
+            <span class="where">A shell on the machine running FastSSH</span>
+          </button>
+        </li>
+      {/if}
     </ul>
 
     {#if loaded && connections.length === 0 && !error}
       <p class="hint">No saved connections yet.</p>
     {/if}
+
+    <footer>
+      <span>{session.email}</span>
+      <button class="plain" onclick={leave}>Sign out</button>
+    </footer>
   {/if}
 </section>
 
@@ -140,7 +160,25 @@
     margin-top: 20px;
   }
 
-  .error {
-    color: var(--danger);
+  footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 28px;
+    color: var(--dim);
+    font-size: 13px;
+  }
+
+  footer span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  footer button {
+    color: var(--secondary);
+    font-size: 13px;
+    flex: none;
   }
 </style>

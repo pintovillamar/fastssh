@@ -5,8 +5,10 @@
     deleteConnection,
     forgetHostKey,
     updateConnection,
+    type AuthKind,
     type ConnectionDetails,
     type SavedConnection,
+    type SecretChanges,
   } from './api'
 
   let {
@@ -22,13 +24,26 @@
   let host = $state(initial?.host ?? '')
   let port = $state(initial?.port ?? 22)
   let username = $state(initial?.username ?? '')
-  let authKind = $state<'password' | 'key_file'>(initial?.auth.kind ?? 'key_file')
-  let keyPath = $state(initial?.auth.kind === 'key_file' ? initial.auth.path : '~/.ssh/id_ed25519')
+  let auth = $state<AuthKind>(initial?.auth ?? 'key')
+
+  // Secrets are write-only: the server never sends them back, so each field
+  // starts empty and "saved" only reflects what the server holds.
+  let password = $state('')
+  let privateKey = $state('')
+  let keyPassphrase = $state('')
+  let saved = $state({
+    password: initial?.has_password ?? false,
+    privateKey: initial?.has_private_key ?? false,
+    keyPassphrase: initial?.has_key_passphrase ?? false,
+  })
+  // Ticked "remove" on a saved secret.
+  let remove = $state({ password: false, keyPassphrase: false })
 
   let error = $state('')
   let notice = $state('')
   let busy = $state(false)
   let confirmingDelete = $state(false)
+  let filePicker = $state<HTMLInputElement>()
 
   async function attempt(action: () => Promise<unknown>, after: () => void) {
     busy = true
@@ -46,20 +61,37 @@
 
   function save(event: SubmitEvent) {
     event.preventDefault()
-    const details: ConnectionDetails = {
-      name,
-      host,
-      port,
-      username,
-      auth: authKind === 'password' ? { kind: 'password' } : { kind: 'key_file', path: keyPath },
+    if (auth === 'key' && !privateKey.trim() && !saved.privateKey) {
+      error = 'Add the private key for this connection.'
+      return
     }
+    const details: ConnectionDetails = { name, host, port, username, auth }
+    const secrets: SecretChanges = {}
+    if (password) secrets.password = password
+    else if (remove.password) secrets.password = null
+    if (privateKey.trim()) secrets.private_key = privateKey
+    if (keyPassphrase) secrets.key_passphrase = keyPassphrase
+    else if (remove.keyPassphrase) secrets.key_passphrase = null
     attempt(
-      () => (initial ? updateConnection(initial.id, details) : createConnection(details)),
+      () => (initial ? updateConnection(initial.id, details, secrets) : createConnection(details, secrets)),
       ondone,
     )
   }
 
-  function remove() {
+  async function readKeyFile() {
+    const file = filePicker?.files?.[0]
+    if (!file || !filePicker) return
+    // Real private keys are a few kilobytes; anything large is a wrong pick.
+    if (file.size > 64 * 1024) {
+      error = 'That file is too large to be a private key.'
+    } else {
+      privateKey = await file.text()
+      error = ''
+    }
+    filePicker.value = ''
+  }
+
+  function removeConnection() {
     if (!initial) return
     attempt(() => deleteConnection(initial.id), ondone)
   }
@@ -90,37 +122,82 @@
 
   <label>
     Username
-    <input bind:value={username} required autocapitalize="none" autocorrect="off" spellcheck="false" />
+    <input bind:value={username} required autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off" />
   </label>
 
   <label>
     Name
-    <input bind:value={name} placeholder="Optional — defaults to user@host" />
+    <input bind:value={name} placeholder="Optional — defaults to user@host" autocomplete="off" />
   </label>
 
   <div class="field">
     <span id="auth-kind-label">Sign in with</span>
     <Select
-      bind:value={authKind}
+      bind:value={auth}
       labelledby="auth-kind-label"
       options={[
-        { value: 'key_file', label: 'Key file' },
+        { value: 'key', label: 'Private key' },
         { value: 'password', label: 'Password' },
       ]}
     />
   </div>
 
-  {#if authKind === 'key_file'}
+  {#if auth === 'password'}
     <label>
-      Key file
-      <input bind:value={keyPath} required autocapitalize="none" autocorrect="off" spellcheck="false" />
-      <span class="help">A path on the machine running FastSSH. A passphrase is asked for when you connect.</span>
+      Password
+      <input
+        type="password"
+        bind:value={password}
+        autocomplete="new-password"
+        disabled={remove.password}
+        placeholder={saved.password ? 'Saved — leave empty to keep it' : 'Optional — leave empty to be asked each time'}
+      />
     </label>
+    {#if saved.password}
+      <label class="check">
+        <input type="checkbox" bind:checked={remove.password} />
+        Remove the saved password
+      </label>
+    {/if}
   {:else}
-    <p class="help">The password is asked for each time you connect; it is not stored.</p>
+    <div class="field">
+      <div class="field-head">
+        <span id="key-label">Private key</span>
+        <button type="button" class="plain small" onclick={() => filePicker?.click()}>Choose file…</button>
+        <input type="file" hidden bind:this={filePicker} onchange={readKeyFile} />
+      </div>
+      <textarea
+        bind:value={privateKey}
+        aria-labelledby="key-label"
+        rows="5"
+        autocapitalize="none"
+        autocomplete="off"
+        spellcheck="false"
+        placeholder={saved.privateKey
+          ? 'Saved — paste another key to replace it'
+          : 'Paste the private key (the file without .pub), starting with -----BEGIN'}
+      ></textarea>
+    </div>
+    <label>
+      Key passphrase
+      <input
+        type="password"
+        bind:value={keyPassphrase}
+        autocomplete="new-password"
+        disabled={remove.keyPassphrase}
+        placeholder={saved.keyPassphrase ? 'Saved — leave empty to keep it' : 'Optional — leave empty to be asked each time'}
+      />
+    </label>
+    {#if saved.keyPassphrase}
+      <label class="check">
+        <input type="checkbox" bind:checked={remove.keyPassphrase} />
+        Remove the saved passphrase
+      </label>
+    {/if}
   {/if}
+  <p class="help">Anything you save here is encrypted in your vault.</p>
 
-  {#if error}<p class="error">{error}</p>{/if}
+  {#if error}<p class="error" role="alert">{error}</p>{/if}
   {#if notice}<p class="help">{notice}</p>{/if}
 
   <div class="actions">
@@ -129,7 +206,7 @@
     {#if initial}
       <span class="spacer"></span>
       {#if confirmingDelete}
-        <button type="button" class="danger" onclick={remove} disabled={busy}>Delete permanently</button>
+        <button type="button" class="danger" onclick={removeConnection} disabled={busy}>Delete permanently</button>
         <button type="button" onclick={() => (confirmingDelete = false)} disabled={busy}>Keep</button>
       {:else}
         <button type="button" onclick={forget} disabled={busy}>Forget host key</button>
@@ -165,15 +242,30 @@
     width: 96px;
   }
 
-  .help {
-    color: var(--dim);
-    font-size: 13px;
-    margin: 0;
+  .field-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
   }
 
-  .error {
-    color: var(--danger);
-    margin: 0;
+  .small {
+    font-size: 13px;
+    padding: 2px 8px;
+    color: var(--accent);
+  }
+
+  textarea {
+    font-family: ui-monospace, 'JetBrains Mono', Menlo, monospace;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--text);
+  }
+
+  .check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: -8px;
   }
 
   .actions {

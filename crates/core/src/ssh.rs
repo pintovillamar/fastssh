@@ -4,7 +4,6 @@
 //! between: [`connect`] (which may ask whether to trust the host key), one of
 //! the `auth_*` methods, then [`SshClient::open_shell`].
 
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -30,6 +29,7 @@ pub struct HostKeyQuestion {
 }
 
 struct Handler {
+    user_id: i64,
     host: String,
     port: u16,
     store: Store,
@@ -44,7 +44,7 @@ impl client::Handler for Handler {
         let presented = key.to_openssh().context("encoding host key")?;
         let fingerprint = key.fingerprint(HashAlg::Sha256).to_string();
 
-        match self.store.known_host(&self.host, self.port)? {
+        match self.store.known_host(self.user_id, &self.host, self.port)? {
             Some(trusted) if trusted == presented => return Ok(true),
             Some(_) => bail!(
                 "the host key for {}:{} has changed (now {fingerprint}). This can mean someone \
@@ -68,7 +68,7 @@ impl client::Handler for Handler {
         if !trusted {
             bail!("host key not trusted");
         }
-        self.store.trust_host(&self.host, self.port, &presented)?;
+        self.store.trust_host(self.user_id, &self.host, self.port, &presented)?;
         Ok(true)
     }
 }
@@ -82,6 +82,7 @@ pub struct SshClient {
 /// Opens the connection and verifies the host key. An unknown key is sent to
 /// `questions`; a key that differs from the trusted one is an error.
 pub async fn connect(
+    user_id: i64,
     connection: &SavedConnection,
     store: Store,
     questions: mpsc::Sender<HostKeyQuestion>,
@@ -102,6 +103,7 @@ pub async fn connect(
         ..Default::default()
     });
     let handler = Handler {
+        user_id,
         host: details.host.clone(),
         port: details.port,
         store,
@@ -118,37 +120,23 @@ pub async fn connect(
 pub enum KeyError {
     #[error("the key is protected by a passphrase")]
     NeedsPassphrase,
-    #[error("could not read key file {path}: {reason}")]
-    Unreadable { path: String, reason: String },
+    #[error("not a usable private key: {0}")]
+    Invalid(String),
 }
 
-/// Reads a private key file from this machine. `~/` is expanded.
-pub async fn load_key(path: &str, passphrase: Option<String>) -> Result<PrivateKey, KeyError> {
-    let display = path.to_owned();
-    let file = expand_home(path);
+/// Parses a private key (OpenSSH or PEM text), decrypting it if a passphrase
+/// is given.
+pub async fn decode_key(text: String, passphrase: Option<String>) -> Result<PrivateKey, KeyError> {
     // Decrypting a key runs a deliberately slow KDF; keep it off async threads.
-    let loaded = tokio::task::spawn_blocking(move || {
-        russh::keys::load_secret_key(file, passphrase.as_deref())
+    let decoded = tokio::task::spawn_blocking(move || {
+        russh::keys::decode_secret_key(&text, passphrase.as_deref())
     })
     .await;
-    match loaded {
+    match decoded {
         Ok(Ok(key)) => Ok(key),
         Ok(Err(russh::keys::Error::KeyIsEncrypted)) => Err(KeyError::NeedsPassphrase),
-        Ok(Err(err)) => Err(KeyError::Unreadable {
-            path: display,
-            reason: err.to_string(),
-        }),
-        Err(err) => Err(KeyError::Unreadable {
-            path: display,
-            reason: err.to_string(),
-        }),
-    }
-}
-
-fn expand_home(path: &str) -> PathBuf {
-    match (path.strip_prefix("~/"), std::env::var_os("HOME")) {
-        (Some(rest), Some(home)) => PathBuf::from(home).join(rest),
-        _ => PathBuf::from(path),
+        Ok(Err(err)) => Err(KeyError::Invalid(err.to_string())),
+        Err(err) => Err(KeyError::Invalid(err.to_string())),
     }
 }
 

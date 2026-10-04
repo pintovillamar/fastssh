@@ -26,7 +26,7 @@ body {
   color: var(--text);
   font-family: system-ui, sans-serif;
   font-size: 15px;
-  /* The terminal handles its own scrolling; the page must never bounce. */
+  /* Each screen scrolls inside itself; the page must never bounce. */
   overflow: hidden;
   overscroll-behavior: none;
 }
@@ -91,6 +91,24 @@ textarea {
   outline-offset: 1px;
 }
 
+/* Checkboxes are drawn here so they match on every browser. */
+input[type='checkbox'] {
+  appearance: none;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+input[type='checkbox']:checked {
+  background: var(--accent)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-7' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+    center / 14px no-repeat;
+  border-color: var(--accent);
+}
+
 /* The browser's own number arrows don't match anything else here. */
 input[type='number'] {
   appearance: textfield;
@@ -108,4 +126,59 @@ label,
   gap: 6px;
   color: var(--secondary);
   font-size: 13px;
+}
+
+textarea {
+  resize: vertical;
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.help {
+  color: var(--dim);
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.error {
+  color: var(--danger);
+  margin: 0;
+}
+
+/* Sign-in, sign-up and unlock: one centred card. */
+.screen {
+  height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px 16px;
+  box-sizing: border-box;
+  overflow-y: auto;
+}
+
+.screen form {
+  width: 100%;
+  max-width: 360px;
+  display: grid;
+  gap: 14px;
+}
+
+.screen .brand {
+  color: var(--accent);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.screen h1 {
+  font-size: 22px;
+  font-weight: 650;
+  margin: 0 0 2px;
+  letter-spacing: -0.01em;
+}
+
+.screen .switch {
+  color: var(--secondary);
 }

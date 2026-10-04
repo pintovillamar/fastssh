@@ -1,7 +1,9 @@
 <script lang="ts">
+  import Auth from './Auth.svelte'
   import Home from './Home.svelte'
   import Terminal from './Terminal.svelte'
-  import type { SavedConnection } from './api'
+  import Unlock from './Unlock.svelte'
+  import { getSession, onSessionLost, type SavedConnection, type Session } from './api'
 
   interface Tab {
     id: number
@@ -13,6 +15,26 @@
   // null shows the connection list.
   let active = $state<number | null>(null)
   let nextId = 1
+
+  let session = $state<Session | null>(null)
+  let loadError = $state('')
+
+  async function refresh() {
+    try {
+      session = await getSession()
+      loadError = ''
+      // The server ends a session's terminals when it signs out; drop their tabs.
+      if (session.state !== 'ready') {
+        tabs = []
+        active = null
+      }
+    } catch (err) {
+      loadError = (err as Error).message
+    }
+  }
+
+  onSessionLost(refresh)
+  refresh()
 
   function open(connection: SavedConnection | null) {
     const tab = {
@@ -31,6 +53,19 @@
   }
 </script>
 
+{#if !session}
+  {#if loadError}
+    <div class="screen"><p class="error">{loadError}</p></div>
+  {/if}
+{:else if session.state === 'setup' || session.state === 'signed_out'}
+  {#key session.state}
+    <Auth {session} ondone={refresh} />
+  {/key}
+{:else if session.state !== 'ready'}
+  {#key session.state}
+    <Unlock {session} ondone={refresh} />
+  {/key}
+{:else}
 <div class="app">
   {#if tabs.length > 0}
     <nav>
@@ -53,11 +88,12 @@
     {/each}
     {#if active === null}
       <div class="pane scroll">
-        <Home onopen={open} />
+        <Home {session} onopen={open} onsession={refresh} />
       </div>
     {/if}
   </main>
 </div>
+{/if}
 
 <style>
   .app {
