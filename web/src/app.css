@@ -1,8 +1,16 @@
 :root {
   --window: #000000;
+  --surface: #0a0a0a;
+  --surface-hover: #161616;
+  --surface-active: #222222;
+  --outline: #1f1f1f;
   --text: #e6e6e6;
+  --secondary: #a0a0a0;
   --dim: #6b6b6b;
   --accent: #1ed760;
+  --on-accent: #000000;
+  --danger: #f15e6c;
+  --radius: 10px;
   color-scheme: dark;
 }
 
@@ -17,7 +25,75 @@ body {
   background: var(--window);
   color: var(--text);
   font-family: system-ui, sans-serif;
+  font-size: 15px;
   /* The terminal handles its own scrolling; the page must never bounce. */
   overflow: hidden;
   overscroll-behavior: none;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+  border: 1px solid var(--outline);
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 9px 14px;
+}
+
+button:hover {
+  background: var(--surface-hover);
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+
+button.primary:hover {
+  filter: brightness(1.08);
+}
+
+button.danger {
+  color: var(--danger);
+}
+
+button.plain {
+  border-color: transparent;
+  background: none;
+}
+
+button.plain:hover {
+  background: var(--surface-hover);
+}
+
+input,
+select {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--surface);
+  border: 1px solid var(--outline);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  /* 16px stops iOS from zooming the page when a field gets focus. */
+  font-size: 16px;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+label {
+  display: grid;
+  gap: 6px;
+  color: var(--secondary);
+  font-size: 13px;
 }

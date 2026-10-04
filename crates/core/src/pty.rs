@@ -1,7 +1,7 @@
 //! A local shell running inside a pseudo-terminal.
 
 use std::io::{Read, Write};
-use std::sync::mpsc as std_mpsc;
+use std::sync::{Mutex, mpsc as std_mpsc};
 use std::thread;
 
 use anyhow::{Context, Result};
@@ -17,7 +17,9 @@ const OUTPUT_BACKLOG: usize = 64;
 /// The pty API is blocking, so reads and writes each get their own OS thread
 /// and talk to async code through channels. Dropping the value ends the shell.
 pub struct LocalShell {
-    master: Box<dyn MasterPty + Send>,
+    // The mutex is only here to make the type `Sync`, so a shell can be held
+    // across awaits in a multi-threaded runtime.
+    master: Mutex<Box<dyn MasterPty + Send>>,
     input: std_mpsc::Sender<Vec<u8>>,
     child: Option<Box<dyn Child + Send + Sync>>,
 }
@@ -69,7 +71,7 @@ impl LocalShell {
         });
 
         let shell = Self {
-            master: pair.master,
+            master: Mutex::new(pair.master),
             input: input_tx,
             child: Some(child),
         };
@@ -84,7 +86,8 @@ impl LocalShell {
     }
 
     pub fn resize(&self, cols: u16, rows: u16) -> Result<()> {
-        self.master.resize(size(cols, rows)).context("resizing pty")
+        let master = self.master.lock().unwrap_or_else(|e| e.into_inner());
+        master.resize(size(cols, rows)).context("resizing pty")
     }
 }
 
