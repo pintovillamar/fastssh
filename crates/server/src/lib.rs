@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
 use axum::{Router, http::HeaderMap, http::header, middleware, routing::get};
-use fastssh_core::{Store, store::User};
+use fastssh_core::{LocalShell, Store, store::User};
 use tokio::net::TcpListener;
 
 /// Everything that decides how a server behaves.
@@ -118,7 +118,8 @@ pub fn app(options: Options) -> Result<Router> {
         config: Arc::new(Config {
             // The desktop app has exactly one profile.
             allow_signup: options.allow_signup && !options.desktop,
-            local_shell: options.local_shell,
+            // Off on platforms where the local shell is not built yet.
+            local_shell: options.local_shell && LocalShell::SUPPORTED,
             secure_cookies: https,
             desktop: options.desktop,
             google,

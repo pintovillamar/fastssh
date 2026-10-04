@@ -106,7 +106,9 @@ are useless without the owner's passphrase.
    ```
 
 The release workflow builds both server binaries and the desktop app
-(AppImage and `.deb`), publishes the GitHub release with checksums and pushes
-the container image. To rehearse without publishing,
+(AppImage and `.deb` for Linux, an installer for Windows), publishes the
+GitHub release with checksums and pushes the container image. Before
+publishing, it installs the Windows installer on a clean machine and checks
+that the app starts. To rehearse without publishing,
 run the workflow by hand from the Actions tab or push to a branch named
 `release-dry-run`.

@@ -2,7 +2,8 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # The rehearsal branch is included so a release rehearsal is also tested.
+    branches: [main, release-dry-run]
   pull_request:
 
 permissions:
@@ -71,3 +72,36 @@ jobs:
           key: desktop
       - name: Clippy
         run: cargo clippy -p fastssh-desktop --locked -- -D warnings
+
+  # The desktop app ships for Windows, so everything is built and tested there
+  # as well. The local shell is not part of the Windows build yet.
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        # The same shell as the other jobs; it stops at the first failure.
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Build the interface
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: windows
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Tests
+        run: cargo test --locked

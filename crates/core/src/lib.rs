@@ -1,8 +1,15 @@
 //! FastSSH core: everything that talks to a shell or a remote host.
 //!
-//! The server and (later) the desktop app both sit on top of this crate, so
-//! nothing in here knows about HTTP, websockets or any UI.
+//! The server and the desktop app both sit on top of this crate, so nothing
+//! in here knows about HTTP, websockets or any UI.
 
+// The local shell exists for Unix only so far. Elsewhere `LocalShell` is a
+// stand-in with the same shape that can never be started, and
+// `LocalShell::SUPPORTED` tells callers which one they got.
+#[cfg(unix)]
+pub mod pty;
+#[cfg(not(unix))]
+#[path = "pty_unsupported.rs"]
 pub mod pty;
 pub mod ssh;
 pub mod store;

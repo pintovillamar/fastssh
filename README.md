@@ -45,27 +45,38 @@ and a container image is published as `ghcr.io/pintovillamar/fastssh`.
 ## Desktop app
 
 The desktop app needs no server and no account. It asks for a master password
-the first time, which encrypts what you save, and its local shell is your own
-computer's. Nothing is opened to the network.
+the first time, which encrypts what you save. Nothing is opened to the network.
 
-Releases include an AppImage and a `.deb` for Linux. To run it from source
-you need WebKitGTK 4.1 (`webkit2gtk-4.1` on Arch, `libwebkit2gtk-4.1-dev` on
-Debian and Ubuntu):
+Releases include an AppImage and a `.deb` for Linux and an installer for
+Windows.
+
+- **Linux:** SSH sessions, plus a local shell on your own computer.
+- **Windows:** SSH sessions only for now; the local shell is not built for
+  Windows yet. The installer is not code-signed, so Windows shows a
+  "Windows protected your PC" warning: choose "More info", then "Run anyway".
+  The app uses the WebView2 runtime, which Windows 11 includes and the
+  installer fetches when it is missing.
+
+To run it from source on Linux you need WebKitGTK 4.1 (`webkit2gtk-4.1` on
+Arch, `libwebkit2gtk-4.1-dev` on Debian and Ubuntu). On Windows the Rust MSVC
+toolchain is enough.
 
 ```sh
 cd web && npm install && npm run build && cd ..
 cargo run -p fastssh-desktop
 ```
 
-To build the AppImage and `.deb` yourself:
+To build the packages yourself (AppImage and `.deb` on Linux, the installer
+on Windows):
 
 ```sh
 cd crates/desktop && npm install && npx tauri build
 ```
 
-Its data lives in `~/.local/share/io.github.pintovillamar.fastssh`, separate
-from the server's. Plain `cargo build` and `cargo test` skip the desktop app,
-so the server can be built without WebKitGTK.
+Its data is separate from the server's: `~/.local/share/io.github.pintovillamar.fastssh`
+on Linux, `%APPDATA%\io.github.pintovillamar.fastssh` on Windows. Plain
+`cargo build` and `cargo test` skip the desktop app, so the server can be
+built without WebKitGTK.
 
 ## Options
 
@@ -115,6 +126,9 @@ passphrase the first time.
 There is no passphrase recovery. A forgotten passphrase means the saved
 secrets are lost, by design: the server cannot decrypt them either.
 
+Private keys are pasted or uploaded into the vault. OpenSSH and PEM files and
+PuTTY `.ppk` files are accepted.
+
 The first account is the admin. Only the admin gets the local shell, because
 it runs as the operating system user FastSSH runs as.
 
@@ -139,6 +153,7 @@ cd web && npm test
 ```
 
 The SSH tests run against a small SSH server started inside the test process.
+CI runs everything on Linux and on Windows.
 
 ## Security notes
 

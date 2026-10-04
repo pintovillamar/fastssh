@@ -14,10 +14,6 @@
   },
   "bundle": {
     "active": true,
-    "targets": [
-      "appimage",
-      "deb"
-    ],
     "category": "DeveloperTool",
     "shortDescription": "Fast, minimal terminal and SSH client",
     "longDescription": "FastSSH opens SSH sessions and local shells in tabs, with saved connections kept in an encrypted vault.",

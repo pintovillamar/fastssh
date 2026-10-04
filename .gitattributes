@@ -1,0 +1,3 @@
+# Keep line endings the same on every platform, so a Windows checkout builds
+# exactly what a Linux one does.
+* text=auto eol=lf

@@ -14,6 +14,18 @@ on:
 permissions:
   contents: read
 
+# A new push to the rehearsal branch replaces the run in progress. A real
+# release is never cancelled.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+# The same shell on every runner, Windows included, and one that stops at the
+# first failing command.
+defaults:
+  run:
+    shell: bash
+
 env:
   PUBLISH: ${{ startsWith(github.ref, 'refs/tags/v') }}
   # Used in file names: the tag for a real release, otherwise "dry-run".
@@ -88,12 +100,21 @@ jobs:
           if-no-files-found: error
 
   desktop:
-    name: Desktop app (x86_64)
-    # Same reasoning as the server builds: an older system gives wider reach.
-    runs-on: ubuntu-22.04
+    name: Desktop app (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Same reasoning as the server builds: an older system gives wider reach.
+          - name: Linux
+            runner: ubuntu-22.04
+          - name: Windows
+            runner: windows-latest
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v5
       - name: System libraries
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -122,15 +143,26 @@ jobs:
           npm ci
           npx tauri build
 
+      # Nobody tries the Windows build by hand, so the installer is run here.
+      - name: Install and start it
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./packaging/windows/smoke-test.ps1 -Installer (Get-Item target/release/bundle/nsis/*-setup.exe).FullName
+
       - name: Package
         run: |
-          cp target/release/bundle/appimage/*.AppImage "FastSSH-$VERSION-x86_64.AppImage"
-          cp target/release/bundle/deb/*.deb "FastSSH-$VERSION-amd64.deb"
+          bundle=target/release/bundle
+          if [ "$RUNNER_OS" = Windows ]; then
+            cp $bundle/nsis/*-setup.exe "FastSSH-$VERSION-x64-setup.exe"
+          else
+            cp $bundle/appimage/*.AppImage "FastSSH-$VERSION-x86_64.AppImage"
+            cp $bundle/deb/*.deb "FastSSH-$VERSION-amd64.deb"
+          fi
           for file in FastSSH-*; do sha256sum "$file" > "$file.sha256"; done
 
       - uses: actions/upload-artifact@v4
         with:
-          name: archive-desktop
+          name: archive-desktop-${{ matrix.name }}
           path: FastSSH-*
           if-no-files-found: error
 

@@ -114,7 +114,8 @@ async fn desktop_profile_needs_only_a_master_password() {
         .call("GET", "/api/session", created.cookie.as_deref(), None)
         .await;
     assert_eq!(session.body["state"], "ready");
-    assert_eq!(session.body["local_shell"], true);
+    // Offered exactly where this build has a local shell (not on Windows yet).
+    assert_eq!(session.body["local_shell"], fastssh_core::LocalShell::SUPPORTED);
 
     // There is exactly one profile.
     assert_eq!(

@@ -25,6 +25,9 @@ pub struct LocalShell {
 }
 
 impl LocalShell {
+    /// Whether this build can open a shell on the machine it runs on.
+    pub const SUPPORTED: bool = true;
+
     /// Starts the shell and returns it together with its output stream.
     /// The stream ends when the shell exits.
     pub fn spawn(cols: u16, rows: u16) -> Result<(Self, mpsc::Receiver<Vec<u8>>)> {
