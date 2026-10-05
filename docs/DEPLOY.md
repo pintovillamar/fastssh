@@ -50,10 +50,11 @@ docker run -d --name fastssh --restart unless-stopped \
   -p 127.0.0.1:7422:7422 \
   -v fastssh-data:/data \
   -e FASTSSH_PUBLIC_URL=https://ssh.example.com \
-  ghcr.io/pintovillamar/fastssh:0.1
+  ghcr.io/pintovillamar/fastssh:latest
 ```
 
-The database lives in the `fastssh-data` volume. To build the image yourself
+The database lives in the `fastssh-data` volume. `latest` is the newest
+release; use a tag such as `0.2` to stay on one release line. To build the image yourself
 instead, run `docker build -t fastssh .` in a checkout of the repository.
 
 If you mount a host folder on `/data` instead of a named volume, it has to be
@@ -101,8 +102,8 @@ are useless without the owner's passphrase.
 2. Tag it and push the tag:
 
    ```sh
-   git tag v0.2.0
-   git push origin main v0.2.0
+   git tag v0.3.0
+   git push origin main v0.3.0
    ```
 
 The release workflow builds both server binaries and the desktop app
