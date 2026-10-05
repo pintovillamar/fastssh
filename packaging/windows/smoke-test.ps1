@@ -21,6 +21,19 @@ if (-not (Test-Path $exe)) {
     throw "the installer did not put the app at $exe"
 }
 
+# The publisher name Windows shows for the app: in "Installed apps" it comes
+# from the uninstall entry, in the file's properties from the program itself.
+$publisher = 'FastSSH'
+$entry = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\FastSSH'
+if ($entry.Publisher -ne $publisher) {
+    throw "the installed app's publisher is '$($entry.Publisher)', expected '$publisher'"
+}
+$company = (Get-Item $exe).VersionInfo.CompanyName
+if ($company -ne $publisher) {
+    throw "the program's company name is '$company', expected '$publisher'"
+}
+Write-Host "Publisher shown by Windows: $($entry.Publisher)"
+
 $app = Start-Process -FilePath $exe -PassThru
 try {
     # The app serves its interface on a free localhost port. Wait for it.
